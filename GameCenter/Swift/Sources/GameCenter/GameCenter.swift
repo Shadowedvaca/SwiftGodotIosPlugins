@@ -74,6 +74,12 @@ class GameCenter: Object {
 
     // MARK: Leaderboards
     /// @Signal
+    /// Score(s) have been successfully reported
+    @Signal var leaderboardScoreSuccess: SimpleSignal
+    /// @Signal
+    /// Error reporting the score
+    @Signal var leaderboardScoreFail: SignalWithArguments<Int, String>
+    /// @Signal
     /// Leaderboard has been shown
     @Signal var leaderboardSuccess: SimpleSignal
     /// @Signal
@@ -83,11 +89,11 @@ class GameCenter: Object {
     /// Error showing the leaderboard
     @Signal var leaderboardFail: SignalWithArguments<Int, String>
     /// @Signal
-    /// Score(s) have been successfully reported - includes leaderboard ID
-    @Signal var leaderboardScoreSuccess: SignalWithArguments<String>
+    /// Score(s) have been successfully reported - includes leaderboard ID for in-game tracking
+    @Signal var leaderboardScoreIngameSuccess: SignalWithArguments<String>
     /// @Signal
-    /// Error reporting the score - includes leaderboard ID
-    @Signal var leaderboardScoreFail: SignalWithArguments<Int, String, String>
+    /// Error reporting the score - includes leaderboard ID for in-game tracking
+    @Signal var leaderboardScoreIngameFail: SignalWithArguments<Int, String, String>
     /// @Signal
     /// Leaderboard entries have been successfully loaded - includes leaderboard ID
     @Signal var leaderboardEntriesLoadSuccess: SignalWithArguments<ObjectCollection<GameCenterLeaderboardEntry>, Int, String>

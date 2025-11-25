@@ -6,17 +6,22 @@
 
 # Development status
 Initial effort focused on bringing this GDExtension implementation to parity with [Godot Gamecenter Ios Plugin](https://github.com/godot-sdk-integrations/godot-ios-plugins/tree/master/plugins/gamecenter).
-More functionality may be added based on needs.
+
+This fork adds programmatic leaderboard data retrieval, enabling developers to display player ranks and scores within their games without relying solely on the native GameCenter UI.
 
 # How to use it
 See Godot demo project for an end to end implementation.
 Register all the signals required, this can be done in the ``_ready()`` method and connect each signal to the relative method.
-```
+```gdscript
 func _ready() -> void:
     if _gamecenter == null && ClassDB.class_exists("GameCenter"):
         _gamecenter = ClassDB.instantiate("GameCenter")
+        
+        # Authentication
         _gamecenter.signin_success.connect(_on_signin_success)
         _gamecenter.signin_fail.connect(_on_signin_fail)
+        
+        # Achievements
         _gamecenter.achievements_description_success.connect(_on_achievements_description_success)
         _gamecenter.achievements_description_fail.connect(_on_achievements_description_fail)
         _gamecenter.achievements_report_success.connect(_on_achievements_report_success)
@@ -25,21 +30,30 @@ func _ready() -> void:
         _gamecenter.achievements_load_fail.connect(_on_achievements_load_fail)
         _gamecenter.achievements_reset_success.connect(_on_achievements_reset_success)
         _gamecenter.achievements_reset_fail.connect(_on_achievements_reset_fail)
-        _gamecenter.leaderboard_score_success.connect(_on_leaderboard_score_success)
-        _gamecenter.leaderboard_score_fail.connect(_on_leaderboard_score_fail)
+        
+        # Leaderboard UI
         _gamecenter.leaderboard_success.connect(_on_leaderboard_success)
         _gamecenter.leaderboard_dismissed.connect(_on_leaderboard_dismissed)
         _gamecenter.leaderboard_fail.connect(_on_leaderboard_fail)
+        
+        # Leaderboard Score Submission (use NEW signals for leaderboard ID tracking)
+        _gamecenter.leaderboard_score_ingame_success.connect(_on_leaderboard_score_success)
+        _gamecenter.leaderboard_score_ingame_fail.connect(_on_leaderboard_score_fail)
+        
+        # Leaderboard Data Retrieval (NEW)
         _gamecenter.leaderboard_entries_load_success.connect(_on_leaderboard_entries_load_success)
         _gamecenter.leaderboard_entries_load_fail.connect(_on_leaderboard_entries_load_fail)
         _gamecenter.leaderboard_player_score_load_success.connect(_on_leaderboard_player_score_load_success)
         _gamecenter.leaderboard_player_score_load_fail.connect(_on_leaderboard_player_score_load_fail)
 ```
 
-The Godot method signature required
-```
+## Callback Method Signatures
+```gdscript
+# Authentication
 func _on_signin_fail(error: int, message: String) -> void:
 func _on_signin_success(player: GameCenterPlayerLocal) -> void:
+
+# Achievements
 func _on_achievements_description_fail(error: int, message: String) -> void:
 func _on_achievements_description_success(achievements: Array[GameCenterAchievementDescription]) -> void:
 func _on_achievements_report_fail(error: int, message: String) -> void:
@@ -48,11 +62,21 @@ func _on_achievements_load_fail(error: int, message: String) -> void:
 func _on_achievements_load_success(achievements: Array[GameCenterAchievement]) -> void:
 func _on_achievements_reset_fail(error: int, message: String) -> void:
 func _on_achievements_reset_success() -> void:
-func _on_leaderboard_score_success(leaderboard_id: String) -> void:
-func _on_leaderboard_score_fail(error: int, message: String, leaderboard_id: String) -> void:
+
+# Leaderboard UI
 func _on_leaderboard_dismissed() -> void:
 func _on_leaderboard_success() -> void:
 func _on_leaderboard_fail(error: int, message: String) -> void:
+
+# Leaderboard Score Submission (backwards compatible - old signals still work)
+func _on_leaderboard_score_success() -> void:  # Old signal - no leaderboard ID
+func _on_leaderboard_score_fail(error: int, message: String) -> void:  # Old signal - no leaderboard ID
+
+# Leaderboard Score Submission (NEW - with leaderboard ID tracking)
+func _on_leaderboard_score_success(leaderboard_id: String) -> void:  # NEW signal
+func _on_leaderboard_score_fail(error: int, message: String, leaderboard_id: String) -> void:  # NEW signal
+
+# Leaderboard Data Retrieval (NEW)
 func _on_leaderboard_entries_load_success(entries: Array[GameCenterLeaderboardEntry], total_player_count: int, leaderboard_id: String) -> void:
 func _on_leaderboard_entries_load_fail(error: int, message: String, leaderboard_id: String) -> void:
 func _on_leaderboard_player_score_load_success(entry: GameCenterLeaderboardEntry, leaderboard_id: String) -> void:
@@ -62,9 +86,11 @@ func _on_leaderboard_player_score_load_fail(error: int, message: String, leaderb
 # Technical details
 
 ## Signals
+
 ### Authorization
 - `signin_success` SignalWithArguments<GameCenterPlayerLocal>
 - `signin_fail` SignalWithArguments<Int,String>
+
 ### Achievements
 - `achievements_description_success` SignalWithArguments<[GameCenterAchievementDescription]>
 - `achievements_description_fail` SignalWithArguments<Int,String>
@@ -74,49 +100,91 @@ func _on_leaderboard_player_score_load_fail(error: int, message: String, leaderb
 - `achievements_load_fail` SignalWithArguments<Int,String>
 - `achievements_reset_success` SimpleSignal
 - `achievements_reset_fail` SignalWithArguments<Int,String>
-### Leaderboards
-- `leaderboard_score_success` SignalWithArguments<String> - includes leaderboard ID
-- `leaderboard_score_fail` SignalWithArguments<Int,String,String> - includes leaderboard ID
+
+### Leaderboards - UI
 - `leaderboard_success` SimpleSignal
 - `leaderboard_dismissed` SimpleSignal
 - `leaderboard_fail` SignalWithArguments<Int,String>
+
+### Leaderboards - Score Submission
+**Backwards Compatible (Original Signals):**
+- `leaderboard_score_success` SimpleSignal - no leaderboard ID
+- `leaderboard_score_fail` SignalWithArguments<Int,String> - no leaderboard ID
+
+**New Signals (With Leaderboard ID Tracking):**
+- `leaderboard_score_ingame_success` SignalWithArguments<String> - includes leaderboard ID
+- `leaderboard_score_ingame_fail` SignalWithArguments<Int,String,String> - includes leaderboard ID
+
+### Leaderboards - Data Retrieval (NEW)
 - `leaderboard_entries_load_success` SignalWithArguments<[GameCenterLeaderboardEntry],Int,String> - entries, total player count, leaderboard ID
-- `leaderboard_entries_load_fail` SignalWithArguments<Int,String,String> - includes leaderboard ID
+- `leaderboard_entries_load_fail` SignalWithArguments<Int,String,String> - error, message, leaderboard ID
 - `leaderboard_player_score_load_success` SignalWithArguments<GameCenterLeaderboardEntry,String> - player's entry, leaderboard ID
-- `leaderboard_player_score_load_fail` SignalWithArguments<Int,String,String> - includes leaderboard ID
+- `leaderboard_player_score_load_fail` SignalWithArguments<Int,String,String> - error, message, leaderboard ID
 
 ## Classes
-### GameCenterLeaderboardEntry
+
+### GameCenterLeaderboardEntry (NEW)
 Represents a leaderboard entry with the following properties:
 - `player: GameCenterPlayer` - The player who earned this score
 - `score: Int` - The score value
 - `rank: Int` - The player's rank (1 = first place)
 - `context: Int` - Developer-supplied context value
 
+Note: The `date` field is disabled due to iOS bridging issues. Can be re-enabled if needed.
+
 ## Methods
 
 ### Authorization
 - `authenticate()` - Performs user authentication.  
-- `is_authenticated()` - Returns authentication state.  
+- `isAuthenticated()` - Returns authentication state.  
+
 ### Achievements
 - `loadAchievementDescriptions()` - Load all achievement descriptions.
-- `reportAchievements()` - Report an array of achievements.
-- `loadAchievements()` - Update the progress of achievements.
+- `reportAchievements(achievements: [GameCenterAchievement])` - Report an array of achievements.
+- `loadAchievements()` - Load the progress of achievements.
 - `resetAchievements()` - Reset the achievements progress for the local player.
-- `showAchievements()` - Open GameCenter Achievements.
-- `showAchievement()` - Open GameCenter Achievements.
+- `showAchievements()` - Open GameCenter Achievements UI.
+- `showAchievement(achievementID: String)` - Open GameCenter UI for a specific achievement.
+
 ### Leaderboards
-- `submitScore(score: Int, leaderboardIDs: [String], context: Int)` - Submit a score to one or more leaderboards.
-- `showLeaderboards()` - Open GameCenter Leaderboards.
-- `showLeaderboard(leaderboardID: String)` - Open a specific GameCenter Leaderboard.
-- `loadLeaderboardEntries(leaderboardID: String, playerScope: String, timeScope: String, rankMin: Int, rankMax: Int)` - Load leaderboard entries for a range of ranks. playerScope: "global" or "friendsOnly". timeScope: "allTime", "week", or "today".
-- `loadPlayerScore(leaderboardID: String, timeScope: String)` - Load the local player's score and rank. timeScope: "allTime", "week", or "today".
+- `submitScore(score: Int, leaderboardIDs: [String], context: Int)` - Submit a score to one or more leaderboards. Emits both old signals (backwards compatible) and new signals (with leaderboard ID).
+- `showLeaderboards()` - Open GameCenter Leaderboards UI.
+- `showLeaderboard(leaderboardID: String)` - Open a specific GameCenter Leaderboard UI.
+- `loadLeaderboardEntries(leaderboardID: String, playerScope: String, timeScope: String, rankMin: Int, rankMax: Int)` - **NEW** - Load leaderboard entries for a range of ranks. 
+  - `playerScope`: "global" or "friendsOnly"
+  - `timeScope`: "allTime", "week", or "today"
+  - `rankMin`/`rankMax`: Range must not exceed 100 entries (Apple limitation)
+- `loadPlayerScore(leaderboardID: String, timeScope: String)` - **NEW** - Load the local player's score and rank regardless of their position on the leaderboard.
+  - `timeScope`: "allTime", "week", or "today"
 
-# Breaking Changes
+# Changes in This Fork
 
-## Leaderboard Signal Signatures (v1.1.0)
-The following signals now include the leaderboard ID to support async identification:
-- `leaderboard_score_success` - Changed from SimpleSignal to SignalWithArguments<String>
-- `leaderboard_score_fail` - Added leaderboard ID as third parameter
+## New Features (v1.1.0)
+- **Leaderboard Data Retrieval**: Programmatically fetch player ranks and scores
+- **GameCenterLeaderboardEntry Class**: Data object for leaderboard entries
+- **Async Request Tracking**: All leaderboard callbacks now include leaderboard ID
 
-Update your callback signatures accordingly when upgrading.
+## Backwards Compatibility
+To maintain compatibility with existing implementations:
+- Original `leaderboard_score_success` and `leaderboard_score_fail` signals remain unchanged
+- New `leaderboard_score_ingame_success` and `leaderboard_score_ingame_fail` signals provide leaderboard ID tracking
+- Both old and new signals are emitted on score submission
+
+Existing code continues to work without modification. New implementations should use the `_ingame_` variants for better async correlation.
+
+## Bug Fixes
+- Fixed player score retrieval to work for any rank (previously only worked for rank #1)
+- Improved error handling with safe optional casting
+- Added input validation for rank ranges
+- Enforced Apple's 100-entry limit for leaderboard queries
+
+# Requirements
+- iOS 17.0+
+- Godot 4.3+
+- SwiftGodot
+
+# Testing
+Tested on:
+- iOS 18.6.2
+- iPhone 16 Pro Max
+- Godot 4.5.1

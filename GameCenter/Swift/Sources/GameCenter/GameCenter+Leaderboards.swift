@@ -15,7 +15,11 @@ extension GameCenter {
         leaderboardIDs: [String]
     ) {
         guard GKLocalPlayer.local.isAuthenticated == true else {
+            // Emit both old and new failure signals
             self.leaderboardScoreFail.emit(
+                GameCenterError.notAuthenticated.rawValue,
+                "Player is not authenticated")
+            self.leaderboardScoreIngameFail.emit(
                 GameCenterError.notAuthenticated.rawValue,
                 "Player is not authenticated",
                 leaderboardIDs.joined(separator: ","))
@@ -27,13 +31,19 @@ extension GameCenter {
             leaderboardIDs: leaderboardIDs,
             completionHandler: { error in
                 guard error == nil else {
+                    // Emit both old and new failure signals with safe error casting
                     self.leaderboardScoreFail.emit(
-                        (error! as NSError).code,
-                        "Error while submitting score",
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error while submitting score")
+                    self.leaderboardScoreIngameFail.emit(
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error while submitting score",
                         leaderboardIDs.joined(separator: ","))
                     return
                 }
-                self.leaderboardScoreSuccess.emit(leaderboardIDs.joined(separator: ","))
+                // Emit both old and new success signals
+                self.leaderboardScoreSuccess.emit()
+                self.leaderboardScoreIngameSuccess.emit(leaderboardIDs.joined(separator: ","))
             })
     }
 
@@ -86,6 +96,24 @@ extension GameCenter {
         rankMin: Int,
         rankMax: Int
     ) {
+        // Validate input parameters
+        guard rankMin > 0, rankMax >= rankMin else {
+            self.leaderboardEntriesLoadFail.emit(
+                GameCenterError.unknownError.rawValue,
+                "Invalid rank range provided. rankMin must be > 0 and rankMax >= rankMin.",
+                leaderboardID)
+            return
+        }
+        
+        // Validate range doesn't exceed Apple's 100-entry limit
+        guard (rankMax - rankMin + 1) <= 100 else {
+            self.leaderboardEntriesLoadFail.emit(
+                GameCenterError.unknownError.rawValue,
+                "Rank range too large. Maximum 100 entries allowed (Apple limitation).",
+                leaderboardID)
+            return
+        }
+        
         guard GKLocalPlayer.local.isAuthenticated == true else {
             self.leaderboardEntriesLoadFail.emit(
                 GameCenterError.notAuthenticated.rawValue,
@@ -126,8 +154,8 @@ extension GameCenter {
             ) { localPlayerEntry, entries, totalPlayerCount, error in
                 guard error == nil else {
                     self.leaderboardEntriesLoadFail.emit(
-                        (error! as NSError).code,
-                        "Error loading leaderboard entries",
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error loading leaderboard entries",
                         leaderboardID
                     )
                     return
@@ -182,14 +210,13 @@ extension GameCenter {
             
             // Load just the player's entry
             leaderboard.loadEntries(
-                for: .global,
-                timeScope: gkTimeScope,
-                range: NSRange(location: 1, length: 1)
-            ) { localPlayerEntry, entries, totalPlayerCount, error in
+                for: [GKLocalPlayer.local],
+                timeScope: gkTimeScope
+            ) { localPlayerEntry, entries, error in
                 guard error == nil else {
                     self.leaderboardPlayerScoreLoadFail.emit(
-                        (error! as NSError).code,
-                        "Error loading player score",
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error loading player score",
                         leaderboardID
                     )
                     return
@@ -204,7 +231,6 @@ extension GameCenter {
                     return
                 }
                 
-                // Convert to Godot object and emit
                 let playerEntry = GameCenterLeaderboardEntry(localPlayerEntry)
                 self.leaderboardPlayerScoreLoadSuccess.emit(playerEntry, leaderboardID)
             }
