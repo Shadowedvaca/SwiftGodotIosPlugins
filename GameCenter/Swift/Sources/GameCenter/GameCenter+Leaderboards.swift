@@ -15,9 +15,14 @@ extension GameCenter {
         leaderboardIDs: [String]
     ) {
         guard GKLocalPlayer.local.isAuthenticated == true else {
+            // Emit both old and new failure signals
             self.leaderboardScoreFail.emit(
                 GameCenterError.notAuthenticated.rawValue,
                 "Player is not authenticated")
+            self.leaderboardScoreIngameFail.emit(
+                GameCenterError.notAuthenticated.rawValue,
+                "Player is not authenticated",
+                leaderboardIDs.joined(separator: ","))
             return
         }
         
@@ -26,12 +31,19 @@ extension GameCenter {
             leaderboardIDs: leaderboardIDs,
             completionHandler: { error in
                 guard error == nil else {
+                    // Emit both old and new failure signals with safe error casting
                     self.leaderboardScoreFail.emit(
-                        (error! as NSError).code,
-                        "Error while resetting achievements")
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error while submitting score")
+                    self.leaderboardScoreIngameFail.emit(
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error while submitting score",
+                        leaderboardIDs.joined(separator: ","))
                     return
                 }
+                // Emit both old and new success signals
                 self.leaderboardScoreSuccess.emit()
+                self.leaderboardScoreIngameSuccess.emit(leaderboardIDs.joined(separator: ","))
             })
     }
 
@@ -75,5 +87,153 @@ extension GameCenter {
                 GameCenterError.notAvailable.rawValue,
                 "Leaderboard not available")
         #endif
+    }
+
+    func loadLeaderboardEntriesInternal(
+        leaderboardID: String,
+        playerScope: String,
+        timeScope: String,
+        rankMin: Int,
+        rankMax: Int
+    ) {
+        // Validate input parameters
+        guard rankMin > 0, rankMax >= rankMin else {
+            self.leaderboardEntriesLoadFail.emit(
+                GameCenterError.unknownError.rawValue,
+                "Invalid rank range provided. rankMin must be > 0 and rankMax >= rankMin.",
+                leaderboardID)
+            return
+        }
+        
+        // Validate range doesn't exceed Apple's 100-entry limit
+        guard (rankMax - rankMin + 1) <= 100 else {
+            self.leaderboardEntriesLoadFail.emit(
+                GameCenterError.unknownError.rawValue,
+                "Rank range too large. Maximum 100 entries allowed (Apple limitation).",
+                leaderboardID)
+            return
+        }
+        
+        guard GKLocalPlayer.local.isAuthenticated == true else {
+            self.leaderboardEntriesLoadFail.emit(
+                GameCenterError.notAuthenticated.rawValue,
+                "Player is not authenticated",
+                leaderboardID)
+            return
+        }
+        
+        // Convert string parameters to enums
+        let gkPlayerScope: GKLeaderboard.PlayerScope = (playerScope == "friendsOnly") ? .friendsOnly : .global
+        let gkTimeScope: GKLeaderboard.TimeScope
+        switch timeScope {
+        case "today":
+            gkTimeScope = .today
+        case "week":
+            gkTimeScope = .week
+        default:
+            gkTimeScope = .allTime
+        }
+        
+        // Load the leaderboard
+        GKLeaderboard.loadLeaderboards(IDs: [leaderboardID]) { leaderboards, error in
+            guard error == nil, let leaderboard = leaderboards?.first else {
+                self.leaderboardEntriesLoadFail.emit(
+                    (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                    error?.localizedDescription ?? "Failed to load leaderboard",
+                    leaderboardID
+                )
+                return
+            }
+            
+            // Load entries for the specified range
+            let range = NSRange(location: rankMin, length: rankMax - rankMin + 1)
+            leaderboard.loadEntries(
+                for: gkPlayerScope,
+                timeScope: gkTimeScope,
+                range: range
+            ) { localPlayerEntry, entries, totalPlayerCount, error in
+                guard error == nil else {
+                    self.leaderboardEntriesLoadFail.emit(
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error loading leaderboard entries",
+                        leaderboardID
+                    )
+                    return
+                }
+                
+                // Convert entries to Godot objects
+                var leaderboardEntries = ObjectCollection<GameCenterLeaderboardEntry>()
+                if let entries = entries {
+                    for entry in entries {
+                        leaderboardEntries.append(GameCenterLeaderboardEntry(entry))
+                    }
+                }
+                
+                self.leaderboardEntriesLoadSuccess.emit(leaderboardEntries, totalPlayerCount, leaderboardID)
+            }
+        }
+    }
+
+    func loadPlayerScoreInternal(
+        leaderboardID: String,
+        timeScope: String
+    ) {
+        guard GKLocalPlayer.local.isAuthenticated == true else {
+            self.leaderboardPlayerScoreLoadFail.emit(
+                GameCenterError.notAuthenticated.rawValue,
+                "Player is not authenticated",
+                leaderboardID)
+            return
+        }
+        
+        // Convert string parameter to enum
+        let gkTimeScope: GKLeaderboard.TimeScope
+        switch timeScope {
+        case "today":
+            gkTimeScope = .today
+        case "week":
+            gkTimeScope = .week
+        default:
+            gkTimeScope = .allTime
+        }
+        
+        // Load the leaderboard
+        GKLeaderboard.loadLeaderboards(IDs: [leaderboardID]) { leaderboards, error in
+            guard error == nil, let leaderboard = leaderboards?.first else {
+                self.leaderboardPlayerScoreLoadFail.emit(
+                    (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                    error?.localizedDescription ?? "Failed to load leaderboard",
+                    leaderboardID
+                )
+                return
+            }
+            
+            // Load just the player's entry
+            leaderboard.loadEntries(
+                for: [GKLocalPlayer.local],
+                timeScope: gkTimeScope
+            ) { localPlayerEntry, entries, error in
+                guard error == nil else {
+                    self.leaderboardPlayerScoreLoadFail.emit(
+                        (error as NSError?)?.code ?? GameCenterError.unknownError.rawValue,
+                        error?.localizedDescription ?? "Error loading player score",
+                        leaderboardID
+                    )
+                    return
+                }
+                
+                guard let localPlayerEntry = localPlayerEntry else {
+                    self.leaderboardPlayerScoreLoadFail.emit(
+                        GameCenterError.unknownError.rawValue,
+                        "No score found for player",
+                        leaderboardID
+                    )
+                    return
+                }
+                
+                let playerEntry = GameCenterLeaderboardEntry(localPlayerEntry)
+                self.leaderboardPlayerScoreLoadSuccess.emit(playerEntry, leaderboardID)
+            }
+        }
     }
 }
